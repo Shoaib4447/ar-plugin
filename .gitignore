@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+*.log
+.pnpm-store/
+.pnpm-store/v11/files/d2/c018c35592f9e37ee3233bb7930e97fb4516cd947d006c46c619952a0123b8b9dd06bb1e3d596db05b22bc1bce93aa1c982f1b3dd14a09586c4d889e1c2eea
