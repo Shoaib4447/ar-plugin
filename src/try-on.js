@@ -58,6 +58,7 @@ export class TryOnSession {
     this.targetPosition = new THREE.Vector3();
     this.targetScale = new THREE.Vector3(1, 1, 1);
     this.targetQuaternion = new THREE.Quaternion();
+    this.smoothedContact = new THREE.Vector2();
     this.bridgeAnchorLocal = new THREE.Vector3();
     this.frontBridgeOffset = new THREE.Vector3();
     this.rotatedBridgeOffset = new THREE.Vector3();
@@ -163,41 +164,7 @@ export class TryOnSession {
     key.position.set(-2, 3, 4);
     this.scene.add(key);
 
-    const gltf = await new GLTFLoader().loadAsync(glbUrl);
     this.glasses = new THREE.Group();
-    this.model = gltf.scene;
-
-    const bounds = new THREE.Box3().setFromObject(this.model);
-    const size = bounds.getSize(new THREE.Vector3());
-    const center = bounds.getCenter(new THREE.Vector3());
-    if (!Number.isFinite(size.x) || size.x <= 0) {
-      throw new Error("The generated GLB has invalid dimensions.");
-    }
-
-    this.modelBaseScale = 1 / size.x;
-    this.modelWidth = size.x;
-    this.modelCenter = center;
-    this.modelFrontZ = bounds.max.z;
-    this.modelDepth = size.z;
-    this.modelBridgePoint = this.findModelBridgePoint();
-    this.applyModelShape();
-    const sourceMeshes = [];
-    this.model.traverse((node) => {
-      if (!node.isMesh) return;
-      sourceMeshes.push(node);
-      node.castShadow = false;
-      node.frustumCulled = false;
-      node.renderOrder = 1;
-      const materials = Array.isArray(node.material) ? node.material : [node.material];
-      materials.forEach((material) => this.improveLensTransparency(material));
-    });
-
-    // This asset is one fused mesh. Extract the front frame and the middle
-    // sections of both temples so they can use different occlusion rules.
-    this.armOverlays = { negativeX: [], positiveX: [] };
-    this.frameOverlays = [];
-    sourceMeshes.forEach((mesh) => this.createArmOverlays(mesh));
-    this.glasses.add(this.model);
 
     // A small depth-only ellipsoid approximates the face. It lets the frame stay
     // visible while hiding temple geometry that passes behind the head on turns.
@@ -214,12 +181,106 @@ export class TryOnSession {
     this.occluder.position.set(0, 0.01, -1.06);
     this.occluder.renderOrder = -100;
     this.glasses.add(this.occluder);
-    this.updateOccluderShape();
 
     this.glasses.visible = false;
     this.scene.add(this.glasses);
+    await this.switchModel(glbUrl);
 
     this.resizeBound = () => this.resize();
+  }
+
+  async switchModel(glbUrl) {
+    if (this.activeModelUrl === glbUrl && this.model) return true;
+
+    const loadId = (this.modelLoadId || 0) + 1;
+    this.modelLoadId = loadId;
+    if (this.model) {
+      // Release the 50+ MB decoded model before parsing the next one. Keeping
+      // both Meshy exports alive at once can exhaust the browser's graphics
+      // memory and leave the old frame on screen even though the select changed.
+      this.glasses.visible = false;
+      this.glasses.remove(this.model);
+      this.disposeObject(this.model);
+      this.renderer?.renderLists?.dispose();
+      this.model = null;
+      this.armOverlays = { negativeX: [], positiveX: [] };
+      this.frameOverlays = [];
+      this.activeModelUrl = null;
+    }
+
+    const gltf = await new GLTFLoader().loadAsync(glbUrl);
+    if (loadId !== this.modelLoadId || !this.glasses) {
+      this.disposeObject(gltf.scene);
+      return false;
+    }
+
+    const nextModel = gltf.scene;
+    const bounds = new THREE.Box3().setFromObject(nextModel);
+    const size = bounds.getSize(new THREE.Vector3());
+    const center = bounds.getCenter(new THREE.Vector3());
+    if (!Number.isFinite(size.x) || size.x <= 0 || size.z <= 0) {
+      this.disposeObject(nextModel);
+      throw new Error("The selected GLB has invalid dimensions.");
+    }
+
+    this.model = nextModel;
+    this.modelBaseScale = 1 / size.x;
+    this.modelWidth = size.x;
+    this.modelCenter = center;
+    this.modelFrontZ = bounds.max.z;
+    this.modelDepth = size.z;
+    this.modelBridgePoint = this.findModelBridgePoint();
+    this.applyModelShape();
+
+    const sourceMeshes = [];
+    this.model.traverse((node) => {
+      if (!node.isMesh) return;
+      sourceMeshes.push(node);
+      node.castShadow = false;
+      node.frustumCulled = false;
+      node.renderOrder = 1;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      materials.forEach((material) => this.improveLensTransparency(material));
+    });
+
+    // Each fused model gets the same front-frame and near-arm occlusion layers.
+    this.armOverlays = { negativeX: [], positiveX: [] };
+    this.frameOverlays = [];
+    sourceMeshes.forEach((mesh) => this.createArmOverlays(mesh));
+    this.glasses.add(this.model);
+    this.updateOccluderShape();
+    this.glasses.visible = false;
+    this.activeModelUrl = glbUrl;
+    return true;
+  }
+
+  disposeObject(object) {
+    if (!object) return;
+    const geometries = new Set();
+    const materials = new Set();
+    const textures = new Set();
+    object.traverse((node) => {
+      if (!node.isMesh) return;
+      if (node.geometry) geometries.add(node.geometry);
+      const nodeMaterials = Array.isArray(node.material)
+        ? node.material
+        : [node.material];
+      nodeMaterials.forEach((material) => {
+        if (!material) return;
+        materials.add(material);
+        Object.values(material).forEach((value) => {
+          if (value?.isTexture) textures.add(value);
+        });
+      });
+    });
+    textures.forEach((texture) => {
+      texture.dispose();
+      // GLTFLoader commonly decodes embedded textures as ImageBitmap objects.
+      // Three.js cannot release their CPU-side pixel memory through dispose().
+      texture.source?.data?.close?.();
+    });
+    materials.forEach((material) => material.dispose());
+    geometries.forEach((geometry) => geometry.dispose());
   }
 
   findModelBridgePoint() {
@@ -263,16 +324,13 @@ export class TryOnSession {
     const sourceIndex = sourceGeometry?.index?.array;
     if (!position || !sourceIndex || this.modelDepth <= 0) return;
 
-    const negativeIndices = new Uint32Array(sourceIndex.length);
-    const positiveIndices = new Uint32Array(sourceIndex.length);
-    const frameIndices = new Uint32Array(sourceIndex.length);
     let negativeCount = 0;
     let positiveCount = 0;
     let frameCount = 0;
 
     // The frame lives at max Z; its arms run toward min Z. Keeping only the
     // middle 72% removes the front rims and the hook that belongs behind an ear.
-    for (let offset = 0; offset < sourceIndex.length; offset += 3) {
+    const classifyTriangle = (offset) => {
       const a = sourceIndex[offset];
       const b = sourceIndex[offset + 1];
       const c = sourceIndex[offset + 2];
@@ -286,21 +344,56 @@ export class TryOnSession {
       const isFrontFrame =
         depthFromFrame <= 0.075 ||
         (centeredX < 0.3 && depthFromFrame <= 0.22);
-      if (isFrontFrame) {
-        frameIndices[frameCount] = a;
-        frameIndices[frameCount + 1] = b;
-        frameIndices[frameCount + 2] = c;
-        frameCount += 3;
+      let classification = isFrontFrame ? 1 : 0;
+      if (depthFromFrame >= 0.08 && depthFromFrame <= 0.68) {
+        classification |= centerX < this.modelCenter.x ? 2 : 4;
       }
+      return classification;
+    };
 
-      if (depthFromFrame < 0.08 || depthFromFrame > 0.68) continue;
-      const destination = centerX < this.modelCenter.x ? negativeIndices : positiveIndices;
-      let count = centerX < this.modelCenter.x ? negativeCount : positiveCount;
-      destination[count] = a;
-      destination[count + 1] = b;
-      destination[count + 2] = c;
-      if (centerX < this.modelCenter.x) negativeCount += 3;
-      else positiveCount += 3;
+    // Count first, then allocate exactly what each overlay needs. Both GLBs
+    // contain more than four million indices, so three maximum-size buffers
+    // plus their sliced copies can exhaust a mobile WebGL context.
+    const triangleClassifications = new Uint8Array(sourceIndex.length / 3);
+    for (let offset = 0, triangle = 0; offset < sourceIndex.length; offset += 3, triangle += 1) {
+      const classification = classifyTriangle(offset);
+      triangleClassifications[triangle] = classification;
+      if (classification & 1) frameCount += 3;
+      if (classification & 2) negativeCount += 3;
+      if (classification & 4) positiveCount += 3;
+    }
+
+    const IndexArray = sourceIndex.constructor;
+    const negativeIndices = new IndexArray(negativeCount);
+    const positiveIndices = new IndexArray(positiveCount);
+    const frameIndices = new IndexArray(frameCount);
+    let negativeOffset = 0;
+    let positiveOffset = 0;
+    let frameOffset = 0;
+
+    for (let offset = 0, triangle = 0; offset < sourceIndex.length; offset += 3, triangle += 1) {
+      const classification = triangleClassifications[triangle];
+      const a = sourceIndex[offset];
+      const b = sourceIndex[offset + 1];
+      const c = sourceIndex[offset + 2];
+      if (classification & 1) {
+        frameIndices[frameOffset] = a;
+        frameIndices[frameOffset + 1] = b;
+        frameIndices[frameOffset + 2] = c;
+        frameOffset += 3;
+      }
+      if (classification & 2) {
+        negativeIndices[negativeOffset] = a;
+        negativeIndices[negativeOffset + 1] = b;
+        negativeIndices[negativeOffset + 2] = c;
+        negativeOffset += 3;
+      }
+      if (classification & 4) {
+        positiveIndices[positiveOffset] = a;
+        positiveIndices[positiveOffset + 1] = b;
+        positiveIndices[positiveOffset + 2] = c;
+        positiveOffset += 3;
+      }
     }
 
     const addOverlay = (side, indexBuffer, indexCount, isFrame = false) => {
@@ -309,7 +402,7 @@ export class TryOnSession {
       Object.entries(sourceGeometry.attributes).forEach(([name, attribute]) => {
         geometry.setAttribute(name, attribute);
       });
-      geometry.setIndex(new THREE.BufferAttribute(indexBuffer.slice(0, indexCount), 1));
+      geometry.setIndex(new THREE.BufferAttribute(indexBuffer, 1));
 
       const sourceMaterials = Array.isArray(sourceMesh.material)
         ? sourceMesh.material
@@ -505,15 +598,26 @@ export class TryOnSession {
 
     const faceNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(this.targetQuaternion);
     this.updateArmOcclusion(landmarks, faceNormal.x);
+    const sideFitWeight = THREE.MathUtils.smoothstep(
+      Math.abs(faceNormal.x),
+      0.08,
+      0.46,
+    );
+    const noseBlend = THREE.MathUtils.lerp(0.35, 1, sideFitWeight);
     const eyeMid = leftEye.clone().add(rightEye).multiplyScalar(0.5);
-    const noseContact = bridge.clone().lerp(noseMid, 0.35);
+    const noseContact = bridge.clone().lerp(noseMid, noseBlend);
     const bottomViewWeight = THREE.MathUtils.smoothstep(
       faceNormal.y,
       0.08,
       0.42,
     );
-    const verticalContact = THREE.MathUtils.lerp(
+    const sideVerticalContact = THREE.MathUtils.lerp(
       eyeMid.y,
+      noseContact.y,
+      sideFitWeight,
+    );
+    const verticalContact = THREE.MathUtils.lerp(
+      sideVerticalContact,
       bridge.y,
       bottomViewWeight * 0.78,
     );
@@ -533,36 +637,44 @@ export class TryOnSession {
       (this.cameraDistance + fittedWidth * (this.frameFrontOffset || 0));
     this.targetScale.setScalar(perspectiveCorrectedScale);
 
-    // Lock the GLB's measured bridge point to the calibrated nose projection.
-    // This solves the perspective projection exactly instead of adding a yaw
-    // offset, so the bridge cannot orbit away as the model rotates.
-    this.frontBridgeOffset
-      .copy(this.bridgeAnchorLocal)
-      .multiplyScalar(perspectiveCorrectedScale);
-    this.rotatedBridgeOffset
-      .copy(this.frontBridgeOffset)
-      .applyQuaternion(this.targetQuaternion);
-    const cameraDistance = this.cameraDistance;
-    const frontProjectionScale =
-      cameraDistance / (cameraDistance - this.frontBridgeOffset.z);
-    const calibratedBridgeX =
-      (this.targetPosition.x + this.frontBridgeOffset.x) * frontProjectionScale;
-    const calibratedBridgeY =
-      (this.targetPosition.y + this.frontBridgeOffset.y) * frontProjectionScale;
-    const rotatedDepthScale =
-      (cameraDistance - this.rotatedBridgeOffset.z) / cameraDistance;
-    this.targetPosition.x =
-      calibratedBridgeX * rotatedDepthScale - this.rotatedBridgeOffset.x;
-    this.targetPosition.y =
-      calibratedBridgeY * rotatedDepthScale - this.rotatedBridgeOffset.y;
-
     const delta = Math.min(this.clock.getDelta(), 0.05);
     const positionSmoothing = 1 - Math.exp(-34 * delta);
     const scaleSmoothing = 1 - Math.exp(-20 * delta);
     const rotationSmoothing = 1 - Math.exp(-26 * delta);
-    this.glasses.position.lerp(this.targetPosition, positionSmoothing);
-    this.glasses.scale.lerp(this.targetScale, scaleSmoothing);
-    this.glasses.quaternion.slerp(this.targetQuaternion, rotationSmoothing);
+    const reacquiredFace = !this.glasses.visible;
+    if (reacquiredFace) {
+      this.smoothedContact.set(this.targetPosition.x, this.targetPosition.y);
+      this.glasses.scale.copy(this.targetScale);
+      this.glasses.quaternion.copy(this.targetQuaternion);
+    } else {
+      this.smoothedContact.lerp(this.targetPosition, positionSmoothing);
+      this.glasses.scale.lerp(this.targetScale, scaleSmoothing);
+      this.glasses.quaternion.slerp(this.targetQuaternion, rotationSmoothing);
+    }
+
+    // Lock the measured GLB bridge to the smoothed nose contact using the
+    // model's actual smoothed scale and rotation. Solving after smoothing keeps
+    // the constraint intact even during movement, not only after settling.
+    this.frontBridgeOffset
+      .copy(this.bridgeAnchorLocal)
+      .multiplyScalar(this.glasses.scale.x);
+    this.rotatedBridgeOffset
+      .copy(this.frontBridgeOffset)
+      .applyQuaternion(this.glasses.quaternion);
+    const cameraDistance = this.cameraDistance;
+    const frontProjectionScale =
+      cameraDistance / (cameraDistance - this.frontBridgeOffset.z);
+    const calibratedBridgeX =
+      (this.smoothedContact.x + this.frontBridgeOffset.x) * frontProjectionScale;
+    const calibratedBridgeY =
+      (this.smoothedContact.y + this.frontBridgeOffset.y) * frontProjectionScale;
+    const rotatedDepthScale =
+      (cameraDistance - this.rotatedBridgeOffset.z) / cameraDistance;
+    this.glasses.position.set(
+      calibratedBridgeX * rotatedDepthScale - this.rotatedBridgeOffset.x,
+      calibratedBridgeY * rotatedDepthScale - this.rotatedBridgeOffset.y,
+      0,
+    );
     this.glasses.visible = true;
     this.lastSeenAt = now;
     this.hint.classList.add("is-hidden");
@@ -602,6 +714,7 @@ export class TryOnSession {
 
   stop() {
     this.running = false;
+    this.modelLoadId = (this.modelLoadId || 0) + 1;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     window.removeEventListener("resize", this.resizeBound);
     this.stream?.getTracks().forEach((track) => track.stop());

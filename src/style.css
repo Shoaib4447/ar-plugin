@@ -361,6 +361,30 @@ h1 {
   font-weight: 700;
 }
 
+.fit-panel .model-control {
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(180px, 280px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.model-control select {
+  width: 100%;
+  padding: 8px 34px 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(10, 11, 10, 0.78);
+  font: inherit;
+}
+
+.model-control select:disabled {
+  opacity: 0.55;
+}
+
 .fit-panel input {
   width: 100%;
   accent-color: #d9e7b8;
@@ -425,6 +449,10 @@ h1 {
 
   .fit-panel {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .fit-panel .model-control {
+    grid-template-columns: 1fr;
   }
 
   .fit-panel button {

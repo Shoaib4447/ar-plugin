@@ -18,7 +18,7 @@
 
       <section class="hero">
         <div class="copy">
-          <p class="eyebrow">One local model. Live fit.</p>
+          <p class="eyebrow">Two local models. Live fit.</p>
           <h1>See the frame<br />on your face.</h1>
           <p class="lede">
             This first-round proof of concept loads the local GLB you supplied and tracks
@@ -69,6 +69,13 @@
       <div class="face-hint" id="face-hint">Center your face in the frame</div>
 
       <div class="fit-panel">
+        <label class="model-control">
+          <span>Glasses model</span>
+          <select id="model-control">
+            <option value="/model/bg-removed.glb">Classic acetate</option>
+            <option value="/model/frame.glb">Round wire frame</option>
+          </select>
+        </label>
         <label>
           <span>Frame width</span>
           <input id="size-control" type="range" min="0.75" max="1.2" step="0.01" value="1" />
