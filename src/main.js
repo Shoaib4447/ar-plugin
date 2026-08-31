@@ -3,7 +3,7 @@ import { TryOnSession } from "./try-on.js";
 
 const MODEL_DETAILS = {
   "/model/bg-removed.glb": { name: "Classic acetate", size: "52 MB" },
-  "/model/frame.glb": { name: "Round wire frame", size: "57 MB" },
+  "/model/metal-frame.glb": { name: "Round wire frame", size: "57 MB" },
 };
 
 const elements = {
