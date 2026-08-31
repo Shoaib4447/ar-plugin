@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 
-// Version 0 serves one local GLB directly. There is intentionally no API,
-// upload, generation, database, or storage service in this round.
+// The local catalog mirrors the manifest a Shopify app backend will eventually
+// produce. Large source models are excluded from hot watching.
 export default defineConfig({
   server: {
     port: 5173,

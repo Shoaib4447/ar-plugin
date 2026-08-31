@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "products": [
+    {
+      "id": "classic-acetate-black",
+      "name": "Classic Acetate",
+      "color": "Gloss black",
+      "modelUrl": "/model/bg-removed.glb",
+      "previewUrl": "/glasses-input.png",
+      "assetStatus": "legacy-demo",
+      "dimensions": {
+        "frameWidthMm": 142,
+        "lensWidthMm": 52,
+        "lensHeightMm": 40,
+        "bridgeWidthMm": 19,
+        "templeLengthMm": 145
+      }
+    },
+    {
+      "id": "round-wire-gunmetal",
+      "name": "Round Wire",
+      "color": "Gunmetal",
+      "modelUrl": "/model/frame.glb",
+      "previewUrl": "/glasses-input-round-gunmetal.png",
+      "assetStatus": "legacy-demo",
+      "dimensions": {
+        "frameWidthMm": 136,
+        "lensWidthMm": 49,
+        "lensHeightMm": 45,
+        "bridgeWidthMm": 20,
+        "templeLengthMm": 140
+      }
+    },
+    {
+      "id": "metal-aviator-silver",
+      "name": "Metal Aviator",
+      "color": "Silver",
+      "modelUrl": "/model/glasses-model.glb",
+      "previewUrl": "/metal-glasses.png",
+      "assetStatus": "legacy-demo",
+      "dimensions": {
+        "frameWidthMm": 140,
+        "lensWidthMm": 58,
+        "lensHeightMm": 48,
+        "bridgeWidthMm": 15,
+        "templeLengthMm": 145
+      }
+    }
+  ]
+}

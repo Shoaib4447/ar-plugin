@@ -5,11 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "validate:catalog": "node scripts/validate-catalog.mjs",
+    "test:stability": "node scripts/test-fit-stability.mjs",
+    "test:occlusion": "node scripts/test-head-occlusion.mjs",
+    "test:arm-fade": "node scripts/test-arm-fade.mjs",
+    "build": "pnpm validate:catalog && pnpm test:stability && pnpm test:occlusion && pnpm test:arm-fade && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1",
+    "@mediapipe/tasks-vision": "1.0.1",
     "three": "^0.180.0"
   },
   "devDependencies": {

@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@mediapipe/tasks-vision':
-        specifier: ^1.0.1
+        specifier: 1.0.1
         version: 1.0.1
       three:
         specifier: ^0.180.0
